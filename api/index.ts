@@ -35,6 +35,18 @@ const appwriteUsers = new Users(appwriteClient);
 
 const app = new Hono().basePath("/api");
 
+// * Security middleware
+app.use("*", async (c, next) => {
+  // Add security headers
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("X-XSS-Protection", "1; mode=block");
+  c.header("Referrer-Policy", "strict-origin-when-cross-origin");
+  c.header("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
+
+  await next();
+});
+
 // * Authentication middleware
 const authenticateRequest = async (c: any, next: any) => {
   const authHeader = c.req.header("Authorization");
@@ -68,6 +80,33 @@ const authenticateRequest = async (c: any, next: any) => {
   await next();
 };
 
+// * Rate limiting middleware (basic implementation)
+const rateLimit = new Map();
+const RATE_LIMIT_WINDOW = 15 * 60 * 1000; // 15 minutes
+const MAX_REQUESTS = 100; // Max requests per window
+
+const rateLimitMiddleware = async (c: any, next: any) => {
+  const clientIP = c.req.header("X-Forwarded-For") || c.req.header("X-Real-IP") || "unknown";
+  const now = Date.now();
+
+  if (!rateLimit.has(clientIP)) {
+    rateLimit.set(clientIP, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+  } else {
+    const clientData = rateLimit.get(clientIP);
+
+    if (now > clientData.resetTime) {
+      // Reset window
+      rateLimit.set(clientIP, { count: 1, resetTime: now + RATE_LIMIT_WINDOW });
+    } else if (clientData.count >= MAX_REQUESTS) {
+      return c.json(createErrorResponse(429, "Rate limit exceeded. Try again later."), 429);
+    } else {
+      clientData.count++;
+    }
+  }
+
+  await next();
+};
+
 // * Common error handler
 const createErrorResponse = (status: number, message: string) => ({
   error: true,
@@ -85,6 +124,21 @@ app.get("/", (c) => {
     message: "Hello Riot Middleware API",
     version: "1.0.0",
     timestamp: new Date().toISOString(),
+    authentication: "Required for /users/* endpoints",
+    documentation: "See AUTHENTICATION.md for setup instructions",
+  });
+});
+
+/**
+ * * Health check endpoint
+ * * Output: health status
+ */
+app.get("/health", (c) => {
+  return c.json({
+    status: "healthy",
+    timestamp: new Date().toISOString(),
+    uptime: process.uptime(),
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
@@ -247,7 +301,7 @@ app.get("/:game/matches/by-puuid/:puuid", async (c) => {
  * * Input: userId (path parameter), preferences (body)
  * * Output: updated preferences
  */
-app.put("/users/:userId/prefs", authenticateRequest, async (c) => {
+app.put("/users/:userId/prefs", rateLimitMiddleware, authenticateRequest, async (c) => {
   try {
     const userId = c.req.param("userId");
     const body = await c.req.json();
@@ -261,19 +315,9 @@ app.put("/users/:userId/prefs", authenticateRequest, async (c) => {
       return c.json(createErrorResponse(400, "Missing or invalid preferences object"));
     }
 
-    // Validate preferences structure
-    const validPreferences = {
-      theme: preferences.theme,
-      language: preferences.language,
-      notifications: preferences.notifications,
-      privacy: preferences.privacy,
-      gameSettings: preferences.gameSettings,
-      customSettings: preferences.customSettings,
-    };
-
     // Update user with preferences
     const updatedUser = await appwriteUsers.updatePrefs(userId, {
-      prefs: JSON.stringify(validPreferences),
+      prefs: JSON.stringify(preferences),
     });
 
     return c.json({
@@ -281,7 +325,7 @@ app.put("/users/:userId/prefs", authenticateRequest, async (c) => {
       message: "User preferences updated successfully",
       data: {
         id: updatedUser.$id,
-        preferences: validPreferences,
+        preferences: preferences,
         updatedAt: updatedUser.$updatedAt,
       },
       timestamp: new Date().toISOString(),
@@ -300,7 +344,7 @@ app.put("/users/:userId/prefs", authenticateRequest, async (c) => {
  * * Input: userId (path parameter)
  * * Output: user preferences
  */
-app.get("/users/:userId/prefs", authenticateRequest, async (c) => {
+app.get("/users/:userId/prefs", rateLimitMiddleware, authenticateRequest, async (c) => {
   try {
     const userId = c.req.param("userId");
 
@@ -310,21 +354,11 @@ app.get("/users/:userId/prefs", authenticateRequest, async (c) => {
 
     const user = await appwriteUsers.get(userId);
 
-    // Parse preferences from user data
-    let preferences = {};
-    try {
-      if (user.prefs && typeof user.prefs === "string") {
-        preferences = JSON.parse(user.prefs);
-      }
-    } catch (parseError) {
-      console.warn("Failed to parse user preferences:", parseError);
-    }
-
     return c.json({
       success: true,
       data: {
         id: user.$id,
-        preferences,
+        preferences: JSON.parse(user.prefs.prefs),
         updatedAt: user.$updatedAt,
       },
       timestamp: new Date().toISOString(),
