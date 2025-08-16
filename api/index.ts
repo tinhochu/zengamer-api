@@ -173,9 +173,35 @@ app.post("/account/fetch", async (c) => {
     }
 
     const data = await res.json();
+
+    const matchesResults = await fetch(
+      `${RIOT_API_URL}/lol/match/v5/matches/by-puuid/${data.puuid}/ids?start=0&count=1`,
+      {
+        headers: {
+          "X-Riot-Token": RIOT_API_KEY,
+        },
+      }
+    );
+
+    const [matchesData] = await matchesResults.json();
+
+    const matchDetailsResult = await fetch(`${RIOT_API_URL}/lol/match/v5/matches/${matchesData}`, {
+      headers: {
+        "X-Riot-Token": RIOT_API_KEY,
+      },
+    });
+
+    const matchDetailsData = await matchDetailsResult.json();
+
+    // Find in the matchDetailsData.participants the participant.puuid that matches the puuid of the account
+    const participant = matchDetailsData.info.participants.find((participant: any) => participant.puuid === data.puuid);
+
     return c.json({
       success: true,
-      data,
+      data: {
+        ...data,
+        profileIconId: participant.profileIcon,
+      },
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
@@ -316,9 +342,7 @@ app.put("/users/:userId/prefs", rateLimitMiddleware, authenticateRequest, async 
     }
 
     // Update user with preferences
-    const updatedUser = await appwriteUsers.updatePrefs(userId, {
-      prefs: JSON.stringify(preferences),
-    });
+    const updatedUser = await appwriteUsers.updatePrefs(userId, { ...preferences });
 
     return c.json({
       success: true,
