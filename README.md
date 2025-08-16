@@ -1,4 +1,4 @@
-# Riot Middleware with Hono
+# ZenGamer API with Hono
 
 A lightweight API middleware for Riot Games APIs built with Hono and deployed on Vercel.
 
