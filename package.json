@@ -1,0 +1,17 @@
+{
+  "type": "module",
+  "scripts": {
+    "start": "vercel dev",
+    "deploy": "vercel"
+  },
+  "dependencies": {
+    "dotenv": "^16.5.0",
+    "hono": "^4.4.2",
+    "mongodb": "^6.17.0",
+    "node-appwrite": "^17.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "vercel": "^45.0.9"
+  }
+}
