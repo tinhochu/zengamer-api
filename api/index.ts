@@ -382,7 +382,7 @@ app.get("/users/:userId/prefs", rateLimitMiddleware, authenticateRequest, async 
       success: true,
       data: {
         id: user.$id,
-        preferences: JSON.parse(user.prefs as any),
+        preferences: user.prefs,
         updatedAt: user.$updatedAt,
       },
       timestamp: new Date().toISOString(),
