@@ -307,13 +307,27 @@ app.get("/:game/matches/by-puuid/:puuid", async (c) => {
     }
 
     const data = await res.json();
+
+    // Now, for every matchId, we need to fetch the match details
+    const matchDetailsResults = await Promise.all(
+      data.map((matchId: string) =>
+        fetch(`${RIOT_API_URL}/${game}/match/v5/matches/${matchId}`, {
+          headers: {
+            "X-Riot-Token": RIOT_API_KEY,
+          },
+        })
+      )
+    );
+
+    const matchDetailsData = await Promise.all(matchDetailsResults.map((res) => res.json()));
+
     return c.json({
       success: true,
       game,
       puuid,
       start: startNum,
       count: countNum,
-      data,
+      data: matchDetailsData,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
